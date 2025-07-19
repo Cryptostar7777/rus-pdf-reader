@@ -9,7 +9,10 @@ import { Alert, AlertDescription } from './ui/alert';
 import { useToast } from '@/hooks/use-toast';
 
 // Настройка PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
 
 interface PageText {
   pageNumber: number;
