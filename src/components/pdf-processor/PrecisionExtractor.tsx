@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { TableSection, ExtractionResult, PageText } from './types';
 import { CheckCircle, AlertTriangle, Clock, FileText } from 'lucide-react';
+import { ExtractionResults } from './ExtractionResults';
 
 interface PrecisionExtractorProps {
   selectedSections: TableSection[];
@@ -336,6 +337,14 @@ export const PrecisionExtractor: React.FC<PrecisionExtractorProps> = ({
           </Card>
         ))}
       </div>
+
+      {/* Результаты извлечения */}
+      {stages.find(s => s.id === 'processing')?.status === 'completed' && 
+       stages.find(s => s.id === 'processing')?.result && (
+        <ExtractionResults 
+          extractionResult={stages.find(s => s.id === 'processing')?.result}
+        />
+      )}
     </div>
   );
 };

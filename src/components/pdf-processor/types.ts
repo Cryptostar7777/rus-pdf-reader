@@ -41,6 +41,23 @@ export interface ExtractionResult {
     total_items: number;
     systems_found: string[];
     sections_processed: string[];
+    duplicates_removed?: number;
+    validation?: {
+      warnings: string[];
+      stats: {
+        items_with_missing_fields: number;
+        items_without_quantity: number;
+        items_without_manufacturer: number;
+        systems_coverage: number;
+      };
+    };
+  };
+  processing_info?: {
+    chunks_processed: number;
+    successful_chunks: number;
+    failed_chunks: number;
+    processing_notes: string[];
+    timestamp: string;
   };
 }
 
