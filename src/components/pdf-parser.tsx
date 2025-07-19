@@ -4,10 +4,11 @@ import { UploadZone } from './ui/upload-zone';
 import { TextDisplay } from './ui/text-display';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
-import { AlertCircle, Download, FileText, Brain } from 'lucide-react';
+import { AlertCircle, Download, FileText, Brain, FileSpreadsheet } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import * as XLSX from 'xlsx';
 
 // Настройка PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -318,6 +319,63 @@ export const PDFParser: React.FC = () => {
     }
   };
 
+  const exportToExcel = () => {
+    if (!structuredData?.extracted_items || structuredData.extracted_items.length === 0) {
+      toast({
+        title: "Нет данных для экспорта",
+        description: "Сначала извлеките структурированные данные",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Создаем рабочую книгу
+      const wb = XLSX.utils.book_new();
+      
+      // Создаем лист с данными
+      const ws = XLSX.utils.json_to_sheet(structuredData.extracted_items);
+      
+      // Устанавливаем ширину колонок
+      const colWidths = [
+        { wch: 15 }, // Наименование системы
+        { wch: 20 }, // Наименование раздела  
+        { wch: 40 }, // Наименование
+        { wch: 50 }, // Технические характеристики
+        { wch: 20 }, // Тип, марка
+        { wch: 10 }, // Код изделия
+        { wch: 20 }, // Завод изготовитель
+        { wch: 10 }, // Ед измерения
+        { wch: 10 }, // Количество
+        { wch: 15 }, // Категория
+        { wch: 25 }  // Примечание
+      ];
+      ws['!cols'] = colWidths;
+      
+      // Добавляем лист в книгу
+      XLSX.utils.book_append_sheet(wb, ws, "Спецификация");
+      
+      // Создаем имя файла
+      const fileName = `${selectedFile?.name.replace('.pdf', '') || 'specification'}_structured_data.xlsx`;
+      
+      // Сохраняем файл
+      XLSX.writeFile(wb, fileName);
+      
+      toast({
+        title: "Excel файл сохранен",
+        description: `Сохранено ${structuredData.extracted_items.length} позиций в ${fileName}`,
+      });
+      
+    } catch (error) {
+      console.error('Ошибка экспорта в Excel:', error);
+      toast({
+        title: "Ошибка экспорта",
+        description: "Не удалось создать Excel файл",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
       <UploadZone
@@ -414,6 +472,17 @@ export const PDFParser: React.FC = () => {
                 <FileText className="h-5 w-5 mr-2" />
                 {isAiProcessing ? 'Извлекаем...' : 'Извлечь данные'}
               </Button>
+              
+              {structuredData?.extracted_items && (
+                <Button
+                  onClick={exportToExcel}
+                  variant="outline"
+                  className="bg-success/10 hover:bg-success/20 border-success/50"
+                >
+                  <FileSpreadsheet className="h-5 w-5 mr-2" />
+                  Экспорт в Excel
+                </Button>
+              )}
             </div>
           </div>
           
@@ -459,6 +528,12 @@ export const PDFParser: React.FC = () => {
                 <FileText className="h-4 w-4" />
                 <AlertDescription>
                   <strong>Извлеченные структурированные данные:</strong>
+                  {structuredData.summary && (
+                    <div className="mt-2 p-2 bg-muted/50 rounded text-sm">
+                      <strong>Сводка:</strong> {structuredData.summary.total_items} позиций, 
+                      системы: {structuredData.summary.systems_found?.join(', ')}
+                    </div>
+                  )}
                   <div className="mt-3">
                     {structuredData.extracted_items ? (
                       <div className="overflow-x-auto">
@@ -478,7 +553,7 @@ export const PDFParser: React.FC = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {structuredData.extracted_items.slice(0, 10).map((item: any, index: number) => (
+                            {structuredData.extracted_items.slice(0, 20).map((item: any, index: number) => (
                               <tr key={index} className="hover:bg-muted/50">
                                 <td className="border border-border px-2 py-1 text-xs">{item["Наименование системы"] || ''}</td>
                                 <td className="border border-border px-2 py-1 text-xs">{item["Наименование раздела"] || ''}</td>
@@ -494,9 +569,12 @@ export const PDFParser: React.FC = () => {
                             ))}
                           </tbody>
                         </table>
-                        {structuredData.extracted_items.length > 10 && (
+                        {structuredData.extracted_items.length > 20 && (
                           <p className="text-sm text-muted-foreground mt-2">
-                            Показано первых 10 из {structuredData.extracted_items.length} позиций
+                            Показано первых 20 из {structuredData.extracted_items.length} позиций
+                            {structuredData.summary?.total_items && 
+                              ` (ожидалось: ${structuredData.summary.total_items})`
+                            }
                           </p>
                         )}
                       </div>
