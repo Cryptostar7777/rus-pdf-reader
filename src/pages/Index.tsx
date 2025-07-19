@@ -1,4 +1,4 @@
-import { PDFParser } from '@/components/pdf-parser';
+import { PDFProcessor } from '@/components/pdf-processor/PDFProcessor';
 import { FileText, Zap, Shield, Download } from 'lucide-react';
 
 const Index = () => {
@@ -25,7 +25,7 @@ const Index = () => {
 
       {/* Основное содержимое */}
       <div className="container mx-auto px-4 py-12">
-        <PDFParser />
+        <PDFProcessor />
       </div>
 
       {/* Преимущества */}
