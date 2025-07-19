@@ -344,11 +344,24 @@ export const PDFParser: React.FC = () => {
         }
         
         try {
-          const structuredResult = JSON.parse(data.result);
+          // Логируем полученные данные для отладки  
+          console.log('Raw result:', data.result);
+          console.log('Type of result:', typeof data.result);
+          
+          let structuredResult;
+          
+          // Если result уже объект, используем его напрямую
+          if (typeof data.result === 'object') {
+            structuredResult = data.result;
+          } else {
+            // Если result строка, парсим JSON
+            structuredResult = JSON.parse(data.result);
+          }
+          
           console.log('🎯 Parsed complete data:', structuredResult);
           
           // Проверка на сокращения
-          const resultStr = data.result.toLowerCase();
+          const resultStr = JSON.stringify(structuredResult).toLowerCase();
           if (resultStr.includes('далее по аналогии') || 
               resultStr.includes('и т.д.') || 
               resultStr.includes('остальные позиции') ||
@@ -377,7 +390,8 @@ export const PDFParser: React.FC = () => {
           
         } catch (parseError) {
           console.error('Ошибка парсинга JSON:', parseError);
-          console.log('Raw result:', data.result);
+          console.log('Raw result that failed to parse:', data.result);
+          console.log('Type of failed result:', typeof data.result);
           
           setStructuredData({ 
             extracted_items: [], 
@@ -467,7 +481,16 @@ export const PDFParser: React.FC = () => {
         
         // Пытаемся распарсить JSON ответ
         try {
-          const parsedResult = JSON.parse(data.result);
+          let parsedResult;
+          
+          // Если result уже объект, используем его напрямую
+          if (typeof data.result === 'object') {
+            parsedResult = data.result;
+          } else {
+            // Если result строка, парсим JSON
+            parsedResult = JSON.parse(data.result);
+          }
+          
           setStructuredData(parsedResult);
           setProcessingStatus('✅ Извлечение завершено успешно');
           
