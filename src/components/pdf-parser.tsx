@@ -27,6 +27,7 @@ export const PDFParser: React.FC = () => {
   const [extractedText, setExtractedText] = useState<PageText[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<string | null>(null);
+  const [structureAnalysis, setStructureAnalysis] = useState<any>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const { toast } = useToast();
 
@@ -35,6 +36,8 @@ export const PDFParser: React.FC = () => {
     setExtractedText([]);
     setError(null);
     setProgress(0);
+    setAiResult(null);
+    setStructureAnalysis(null);
   };
 
   const extractTextFromPDF = async () => {
@@ -175,6 +178,75 @@ export const PDFParser: React.FC = () => {
     }
   };
 
+  const analyzeDocumentStructure = async () => {
+    if (extractedText.length === 0) {
+      toast({
+        title: "Нет текста для анализа",
+        description: "Сначала извлеките текст из PDF",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAiProcessing(true);
+    setError(null);
+    
+    try {
+      // Объединяем весь текст из всех страниц
+      const fullText = extractedText
+        .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
+        .join('\n\n');
+      
+      console.log('Отправляем текст на анализ структуры, символов:', fullText.length);
+      
+      const { data, error } = await supabase.functions.invoke('ai-text-processor', {
+        body: { 
+          text: fullText,
+          mode: 'extract'
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        console.log('Получен результат анализа:', data.result);
+        
+        // Пытаемся распарсить JSON ответ
+        try {
+          const parsedResult = JSON.parse(data.result);
+          setStructureAnalysis(parsedResult);
+          
+          toast({
+            title: "Анализ завершен",
+            description: `Найдено ${parsedResult.found_tables?.length || 0} таблиц/спецификаций`,
+          });
+        } catch (parseError) {
+          // Если не JSON, сохраняем как есть
+          setStructureAnalysis({ raw_response: data.result });
+          
+          toast({
+            title: "Анализ завершен",
+            description: "Результат получен (текстовый формат)",
+          });
+        }
+
+      } else {
+        throw new Error(data.error || 'Неизвестная ошибка анализа');
+      }
+
+    } catch (err) {
+      console.error('Ошибка анализа структуры:', err);
+      setError(`Ошибка анализа: ${err.message}`);
+      toast({
+        title: "Ошибка анализа",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
       <UploadZone
@@ -242,7 +314,7 @@ export const PDFParser: React.FC = () => {
 
       {extractedText.length > 0 && (
         <div className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center">
             <Button
               onClick={downloadText}
               variant="outline"
@@ -251,7 +323,51 @@ export const PDFParser: React.FC = () => {
               <Download className="h-4 w-4" />
               <span>Скачать текст</span>
             </Button>
+            
+            <Button
+              onClick={analyzeDocumentStructure}
+              disabled={isAiProcessing}
+              className="bg-primary hover:bg-primary/90"
+            >
+              <Brain className="h-5 w-5 mr-2" />
+              {isAiProcessing ? 'Анализируем...' : 'Анализировать структуру'}
+            </Button>
           </div>
+          
+          {/* Результат анализа структуры */}
+          {structureAnalysis && (
+            <div className="space-y-4">
+              <Alert>
+                <Brain className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Результат анализа структуры документа:</strong>
+                  <div className="mt-3">
+                    {structureAnalysis.found_tables ? (
+                      <div className="space-y-3">
+                        {structureAnalysis.found_tables.map((table: any, index: number) => (
+                          <div key={index} className="border border-border rounded-lg p-4 bg-card">
+                            <h4 className="font-semibold text-card-foreground mb-2">
+                              {table.title || `Таблица ${index + 1}`}
+                            </h4>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              Тип: <span className="font-medium">{table.type || 'неизвестно'}</span>
+                            </p>
+                            <div className="text-sm text-card-foreground bg-muted p-3 rounded max-h-32 overflow-y-auto">
+                              {table.content || 'Содержимое не извлечено'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-muted rounded text-sm">
+                        {structureAnalysis.raw_response || JSON.stringify(structureAnalysis, null, 2)}
+                      </div>
+                    )}
+                  </div>
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
           
           <TextDisplay
             pages={extractedText}
