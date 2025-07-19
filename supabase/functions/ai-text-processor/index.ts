@@ -226,16 +226,18 @@ ${section}`;
         
         const systems = [...new Set(allItems.map(item => item["Наименование системы"]).filter(Boolean))];
         
+        const finalResult = {
+          extracted_items: allItems,
+          summary: {
+            total_items: allItems.length,
+            systems_found: systems,
+            categories: categories
+          }
+        };
+        
         return new Response(JSON.stringify({
           success: true,
-          result: {
-            extracted_items: allItems,
-            summary: {
-              total_items: allItems.length,
-              systems_found: systems,
-              categories: categories
-            }
-          },
+          result: JSON.stringify(finalResult), // Возвращаем как JSON-строку для совместимости
           mode,
           text_length: text.length,
           tokens_used: totalTokens,
