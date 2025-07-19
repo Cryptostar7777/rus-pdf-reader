@@ -41,10 +41,10 @@ export const StructureAnalyzer: React.FC<StructureAnalyzerProps> = ({
         .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
         .join('\n\n');
       
-      const { data, error } = await supabase.functions.invoke('ai-text-processor', {
+      const { data, error } = await supabase.functions.invoke('structure-analyzer', {
         body: { 
           text: fullText,
-          mode: 'analyze_structure'
+          total_pages: extractedText.length
         }
       });
 

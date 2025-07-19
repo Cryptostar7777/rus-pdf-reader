@@ -14,6 +14,7 @@ import { SectionSelector } from './SectionSelector';
 import { PrecisionExtractor } from './PrecisionExtractor';
 import { ProcessingStatus } from './ProcessingStatus';
 import { ResultsDisplay } from './ResultsDisplay';
+import { SystemDiagnostics } from './SystemDiagnostics';
 
 export const PDFProcessor: React.FC = () => {
   // Основные состояния
@@ -237,6 +238,9 @@ export const PDFProcessor: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Системная диагностика */}
+      <SystemDiagnostics />
+      
       <ProcessingStatus status={getCurrentStatus()} />
 
       {/* Шаг 1: Загрузка файла */}
