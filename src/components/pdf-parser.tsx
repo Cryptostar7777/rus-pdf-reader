@@ -4,9 +4,10 @@ import { UploadZone } from './ui/upload-zone';
 import { TextDisplay } from './ui/text-display';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
-import { AlertCircle, Download, FileText } from 'lucide-react';
+import { AlertCircle, Download, FileText, Brain } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 // Настройка PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -25,6 +26,8 @@ export const PDFParser: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [extractedText, setExtractedText] = useState<PageText[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<string | null>(null);
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
   const { toast } = useToast();
 
   const handleFileSelect = (file: File | null) => {
@@ -132,6 +135,46 @@ export const PDFParser: React.FC = () => {
     });
   };
 
+  const testAiIntegration = async () => {
+    setIsAiProcessing(true);
+    setError(null);
+    
+    try {
+      const testText = "Привет! Тестируем интеграцию с OpenAI API.";
+      
+      console.log('Отправляем тестовый запрос к AI...');
+      const { data, error } = await supabase.functions.invoke('ai-text-processor', {
+        body: { 
+          text: testText,
+          mode: 'test'
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        setAiResult(data.result);
+        toast({
+          title: "AI интеграция работает!",
+          description: `Токенов использовано: ${data.tokens_used?.total_tokens || 'неизвестно'}`,
+        });
+      } else {
+        throw new Error(data.error || 'Неизвестная ошибка AI');
+      }
+
+    } catch (err) {
+      console.error('Ошибка AI тестирования:', err);
+      setError(`Ошибка AI: ${err.message}`);
+      toast({
+        title: "Ошибка AI интеграции",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
       <UploadZone
@@ -148,15 +191,41 @@ export const PDFParser: React.FC = () => {
       )}
 
       {selectedFile && !isProcessing && extractedText.length === 0 && (
-        <div className="text-center">
+        <div className="text-center space-y-4">
           <Button
             onClick={extractTextFromPDF}
             size="lg"
-            className="bg-gradient-primary hover:opacity-90 shadow-elegant"
+            className="bg-gradient-primary hover:opacity-90 shadow-elegant mr-4"
           >
             <FileText className="h-5 w-5 mr-2" />
             Извлечь текст из PDF
           </Button>
+          
+          <Button
+            onClick={testAiIntegration}
+            size="lg"
+            variant="secondary"
+            disabled={isAiProcessing}
+            className="bg-primary/10 hover:bg-primary/20"
+          >
+            <Brain className="h-5 w-5 mr-2" />
+            {isAiProcessing ? 'Тестируем AI...' : 'Тест AI интеграции'}
+          </Button>
+        </div>
+      )}
+
+      {/* AI результат */}
+      {aiResult && (
+        <div className="space-y-4">
+          <Alert>
+            <Brain className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Результат AI тестирования:</strong>
+              <div className="mt-2 p-3 bg-muted rounded text-sm">
+                {aiResult}
+              </div>
+            </AlertDescription>
+          </Alert>
         </div>
       )}
 
