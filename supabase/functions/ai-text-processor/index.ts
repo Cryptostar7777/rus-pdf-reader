@@ -187,7 +187,24 @@ ${section}`;
               }
             } catch (parseError) {
               console.error(`❌ Ошибка парсинга JSON для секции ${i + 1}:`, parseError);
-              console.error(`❌ Проблемный ответ:`, sectionResult.substring(0, 200) + '...');
+              console.error(`❌ Проблемный ответ (первые 500 символов):`, sectionResult.substring(0, 500));
+              console.error(`❌ Проблемный ответ (последние 200 символов):`, sectionResult.substring(Math.max(0, sectionResult.length - 200)));
+              console.error(`❌ Длина ответа:`, sectionResult.length);
+              
+              // Попробуем найти JSON в ответе
+              const jsonMatch = sectionResult.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                console.log(`🔍 Найден потенциальный JSON:`, jsonMatch[0].substring(0, 200) + '...');
+                try {
+                  const foundJson = JSON.parse(jsonMatch[0]);
+                  if (foundJson.extracted_items && Array.isArray(foundJson.extracted_items)) {
+                    allItems.push(...foundJson.extracted_items);
+                    console.log(`✅ Успешно извлечено ${foundJson.extracted_items.length} позиций из найденного JSON секции ${i + 1}`);
+                  }
+                } catch (secondParseError) {
+                  console.error(`❌ Ошибка парсинга найденного JSON:`, secondParseError);
+                }
+              }
             }
             
             // Пауза между запросами
