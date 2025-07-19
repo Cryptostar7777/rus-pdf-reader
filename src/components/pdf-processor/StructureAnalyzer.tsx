@@ -37,9 +37,17 @@ export const StructureAnalyzer: React.FC<StructureAnalyzerProps> = ({
     try {
       onStatusChange('Анализ структуры документа...');
       
-      const fullText = extractedText
+      // Ограничиваем размер текста для анализа (максимум ~50KB)
+      const MAX_TEXT_LENGTH = 50000;
+      let fullText = extractedText
         .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
         .join('\n\n');
+      
+      // Если текст слишком большой, берем первую часть
+      if (fullText.length > MAX_TEXT_LENGTH) {
+        fullText = fullText.substring(0, MAX_TEXT_LENGTH) + '\n\n[...текст обрезан для анализа...]';
+        onStatusChange('Анализ структуры документа (текст обрезан для оптимизации)...');
+      }
       
       const { data, error } = await supabase.functions.invoke('structure-analyzer', {
         body: { 
