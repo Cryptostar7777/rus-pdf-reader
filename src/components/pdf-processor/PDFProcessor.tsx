@@ -11,7 +11,7 @@ import { FileUploader } from './FileUploader';
 import { TextExtractor } from './TextExtractor';
 import { StructureAnalyzer } from './StructureAnalyzer';
 import { SectionSelector } from './SectionSelector';
-import { DataExtractor } from './DataExtractor';
+import { PrecisionExtractor } from './PrecisionExtractor';
 import { ProcessingStatus } from './ProcessingStatus';
 import { ResultsDisplay } from './ResultsDisplay';
 
@@ -283,12 +283,10 @@ export const PDFProcessor: React.FC = () => {
 
       {/* Шаг 5: Извлечение данных */}
       {currentStage === 'extract_data' || currentStage === 'complete' ? (
-        <DataExtractor
+        <PrecisionExtractor
           selectedSections={getSelectedSections()}
-          extractedData={extractedData}
+          pdfPages={extractedText}
           onExtractionComplete={handleExtractionComplete}
-          isProcessing={isProcessing && currentStage === 'extract_data'}
-          progress={progress}
           onStatusChange={handleStatusChange}
         />
       ) : null}
