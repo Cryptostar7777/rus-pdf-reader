@@ -250,6 +250,104 @@ export const PDFParser: React.FC = () => {
     }
   };
 
+  const extractCompleteStructuredData = async () => {
+    if (extractedText.length === 0) {
+      toast({
+        title: "Нет текста для анализа", 
+        description: "Сначала извлеките текст из PDF",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAiProcessing(true);
+    setError(null);
+    
+    try {
+      // Объединяем весь текст из всех страниц
+      const fullText = extractedText
+        .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
+        .join('\n\n');
+      
+      console.log('🎯 ПОЛНОЕ извлечение данных, символов:', fullText.length);
+      
+      const { data, error } = await supabase.functions.invoke('ai-text-processor', {
+        body: { 
+          text: fullText,
+          mode: 'structured_complete'
+        }
+      });
+
+      if (error) {
+        throw new Error(`Ошибка API: ${error.message}`);
+      }
+
+      if (data.success) {
+        console.log('🎯 Получен полный результат, длина:', data.result.length);
+        
+        try {
+          const structuredResult = JSON.parse(data.result);
+          console.log('🎯 Parsed complete data:', structuredResult);
+          
+          // Проверка на сокращения
+          const resultStr = data.result.toLowerCase();
+          if (resultStr.includes('далее по аналогии') || 
+              resultStr.includes('и т.д.') || 
+              resultStr.includes('остальные позиции') ||
+              resultStr.includes('...')) {
+            console.warn('⚠️ ВНИМАНИЕ: Обнаружены сокращения в ответе!');
+            toast({
+              title: "Внимание: неполные данные",
+              description: "AI сократил результат. Попробуйте еще раз.",
+              variant: "destructive",
+            });
+          }
+          
+          setStructuredData(structuredResult);
+          
+          const itemsCount = structuredResult.extracted_items?.length || 0;
+          const expectedCount = structuredResult.summary?.total_items;
+          
+          toast({
+            title: "Полное извлечение завершено",
+            description: `Извлечено ${itemsCount} позиций${expectedCount ? ` из ${expectedCount} ожидаемых` : ''}`,
+            variant: itemsCount === expectedCount ? "default" : "destructive"
+          });
+          
+        } catch (parseError) {
+          console.error('Ошибка парсинга JSON:', parseError);
+          console.log('Raw result:', data.result);
+          
+          setStructuredData({ 
+            extracted_items: [], 
+            raw_response: data.result,
+            parse_error: parseError.message 
+          });
+          
+          toast({
+            title: "Ошибка парсинга",
+            description: "Получен некорректный JSON. Проверьте raw_response.",
+            variant: "destructive",
+          });
+        }
+
+      } else {
+        throw new Error(data.error || 'Неизвестная ошибка полного извлечения');
+      }
+
+    } catch (err) {
+      console.error('Ошибка полного извлечения:', err);
+      setError(`Ошибка полного извлечения: ${err.message}`);
+      toast({
+        title: "Ошибка полного извлечения",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   const extractStructuredData = async () => {
     if (extractedText.length === 0) {
       toast({
@@ -471,6 +569,16 @@ export const PDFParser: React.FC = () => {
               >
                 <FileText className="h-5 w-5 mr-2" />
                 {isAiProcessing ? 'Извлекаем...' : 'Извлечь данные'}
+              </Button>
+              
+              <Button
+                onClick={extractCompleteStructuredData}
+                disabled={isAiProcessing}
+                variant="outline"
+                className="border-primary text-primary hover:bg-primary hover:text-white"
+              >
+                <FileText className="h-5 w-5 mr-2" />
+                {isAiProcessing ? 'Полное извлечение...' : 'ПОЛНОЕ извлечение'}
               </Button>
               
               {structuredData?.extracted_items && (
