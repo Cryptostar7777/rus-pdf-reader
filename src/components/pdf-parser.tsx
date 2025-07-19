@@ -31,7 +31,35 @@ export const PDFParser: React.FC = () => {
   const [structureAnalysis, setStructureAnalysis] = useState<any>(null);
   const [structuredData, setStructuredData] = useState<any>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  
+  // Новые состояния для отслеживания
+  const [processingStatus, setProcessingStatus] = useState<string>('');
+  const [tokenUsage, setTokenUsage] = useState<{
+    totalTokens: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalCost: number;
+    attempts: number;
+  }>({
+    totalTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalCost: 0,
+    attempts: 0
+  });
+  
   const { toast } = useToast();
+
+  // Функция расчета стоимости для GPT-4.1-2025-04-14
+  const calculateCost = (inputTokens: number, outputTokens: number) => {
+    const inputCostPer1K = 0.010; // $0.010 per 1K input tokens
+    const outputCostPer1K = 0.030; // $0.030 per 1K output tokens
+    
+    const inputCost = (inputTokens / 1000) * inputCostPer1K;
+    const outputCost = (outputTokens / 1000) * outputCostPer1K;
+    
+    return inputCost + outputCost;
+  };
 
   const handleFileSelect = (file: File | null) => {
     setSelectedFile(file);
@@ -41,6 +69,14 @@ export const PDFParser: React.FC = () => {
     setAiResult(null);
     setStructureAnalysis(null);
     setStructuredData(null);
+    setProcessingStatus('');
+    setTokenUsage({
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalCost: 0,
+      attempts: 0
+    });
   };
 
   const extractTextFromPDF = async () => {
@@ -262,6 +298,7 @@ export const PDFParser: React.FC = () => {
 
     setIsAiProcessing(true);
     setError(null);
+    setProcessingStatus('🎯 Подготовка к полному извлечению...');
     
     try {
       // Объединяем весь текст из всех страниц
@@ -269,6 +306,7 @@ export const PDFParser: React.FC = () => {
         .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
         .join('\n\n');
       
+      setProcessingStatus(`📄 Отправка ${fullText.length} символов для анализа...`);
       console.log('🎯 ПОЛНОЕ извлечение данных, символов:', fullText.length);
       
       const { data, error } = await supabase.functions.invoke('ai-text-processor', {
@@ -283,7 +321,27 @@ export const PDFParser: React.FC = () => {
       }
 
       if (data.success) {
+        setProcessingStatus('✅ Обработка ответа от AI...');
         console.log('🎯 Получен полный результат, длина:', data.result.length);
+        
+        // Обновляем статистику токенов
+        if (data.tokens_used) {
+          const newTokens = {
+            totalTokens: tokenUsage.totalTokens + (data.tokens_used.total_tokens || 0),
+            inputTokens: tokenUsage.inputTokens + (data.tokens_used.prompt_tokens || 0),
+            outputTokens: tokenUsage.outputTokens + (data.tokens_used.completion_tokens || 0),
+            attempts: tokenUsage.attempts + (data.attempts_used || 1),
+            totalCost: 0
+          };
+          
+          newTokens.totalCost = tokenUsage.totalCost + calculateCost(
+            data.tokens_used.prompt_tokens || 0,
+            data.tokens_used.completion_tokens || 0
+          );
+          
+          setTokenUsage(newTokens);
+          setProcessingStatus(`📊 Использовано ${data.tokens_used.total_tokens} токенов (попытка ${data.attempts_used || 1})`);
+        }
         
         try {
           const structuredResult = JSON.parse(data.result);
@@ -296,11 +354,14 @@ export const PDFParser: React.FC = () => {
               resultStr.includes('остальные позиции') ||
               resultStr.includes('...')) {
             console.warn('⚠️ ВНИМАНИЕ: Обнаружены сокращения в ответе!');
+            setProcessingStatus('⚠️ Обнаружены сокращения в ответе');
             toast({
               title: "Внимание: неполные данные",
               description: "AI сократил результат. Попробуйте еще раз.",
               variant: "destructive",
             });
+          } else {
+            setProcessingStatus('✅ Извлечение завершено успешно');
           }
           
           setStructuredData(structuredResult);
@@ -345,6 +406,7 @@ export const PDFParser: React.FC = () => {
       });
     } finally {
       setIsAiProcessing(false);
+      setTimeout(() => setProcessingStatus(''), 3000); // Убираем статус через 3 секунды
     }
   };
 
@@ -360,6 +422,7 @@ export const PDFParser: React.FC = () => {
 
     setIsAiProcessing(true);
     setError(null);
+    setProcessingStatus('📄 Подготовка к извлечению данных...');
     
     try {
       // Объединяем весь текст из всех страниц
@@ -367,6 +430,7 @@ export const PDFParser: React.FC = () => {
         .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
         .join('\n\n');
       
+      setProcessingStatus(`📄 Отправка ${fullText.length} символов для анализа...`);
       console.log('Извлекаем структурированные данные, символов:', fullText.length);
       
       const { data, error } = await supabase.functions.invoke('ai-text-processor', {
@@ -379,12 +443,33 @@ export const PDFParser: React.FC = () => {
       if (error) throw error;
 
       if (data.success) {
+        setProcessingStatus('✅ Обработка ответа от AI...');
         console.log('Получены структурированные данные:', data.result);
+        
+        // Обновляем статистику токенов
+        if (data.tokens_used) {
+          const newTokens = {
+            totalTokens: tokenUsage.totalTokens + (data.tokens_used.total_tokens || 0),
+            inputTokens: tokenUsage.inputTokens + (data.tokens_used.prompt_tokens || 0),
+            outputTokens: tokenUsage.outputTokens + (data.tokens_used.completion_tokens || 0),
+            attempts: tokenUsage.attempts + (data.attempts_used || 1),
+            totalCost: 0
+          };
+          
+          newTokens.totalCost = tokenUsage.totalCost + calculateCost(
+            data.tokens_used.prompt_tokens || 0,
+            data.tokens_used.completion_tokens || 0
+          );
+          
+          setTokenUsage(newTokens);
+          setProcessingStatus(`📊 Использовано ${data.tokens_used.total_tokens} токенов`);
+        }
         
         // Пытаемся распарсить JSON ответ
         try {
           const parsedResult = JSON.parse(data.result);
           setStructuredData(parsedResult);
+          setProcessingStatus('✅ Извлечение завершено успешно');
           
           toast({
             title: "Извлечение завершено",
@@ -393,6 +478,7 @@ export const PDFParser: React.FC = () => {
         } catch (parseError) {
           // Если не JSON, сохраняем как есть
           setStructuredData({ raw_response: data.result });
+          setProcessingStatus('⚠️ Получен текстовый формат');
           
           toast({
             title: "Извлечение завершено",
@@ -407,6 +493,7 @@ export const PDFParser: React.FC = () => {
     } catch (err) {
       console.error('Ошибка извлечения структурированных данных:', err);
       setError(`Ошибка извлечения: ${err.message}`);
+      setProcessingStatus('❌ Ошибка извлечения');
       toast({
         title: "Ошибка извлечения",
         description: err.message,
@@ -414,6 +501,7 @@ export const PDFParser: React.FC = () => {
       });
     } finally {
       setIsAiProcessing(false);
+      setTimeout(() => setProcessingStatus(''), 3000); // Убираем статус через 3 секунды
     }
   };
 
@@ -593,6 +681,63 @@ export const PDFParser: React.FC = () => {
               )}
             </div>
           </div>
+          
+          {/* Статус обработки и счетчик токенов */}
+          {(isAiProcessing || processingStatus || tokenUsage.totalTokens > 0) && (
+            <div className="space-y-3">
+              {/* Статус обработки */}
+              {(isAiProcessing || processingStatus) && (
+                <div className="bg-muted/50 border border-border rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    {isAiProcessing && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                    )}
+                    <span className="text-sm font-medium">
+                      {processingStatus || 'Обработка...'}
+                    </span>
+                  </div>
+                  {isAiProcessing && (
+                    <div className="mt-2">
+                      <div className="w-full bg-background rounded-full h-2">
+                        <div className="bg-primary h-2 rounded-full animate-pulse" style={{width: '60%'}}></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Счетчик токенов и стоимости */}
+              {tokenUsage.totalTokens > 0 && (
+                <div className="bg-card border border-border rounded-lg p-4 space-y-2">
+                  <h4 className="text-sm font-semibold text-card-foreground">📊 Статистика использования</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground">Всего токенов</p>
+                      <p className="font-mono font-medium">{tokenUsage.totalTokens.toLocaleString()}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground">Входящие</p>
+                      <p className="font-mono font-medium text-blue-600">{tokenUsage.inputTokens.toLocaleString()}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground">Исходящие</p>
+                      <p className="font-mono font-medium text-green-600">{tokenUsage.outputTokens.toLocaleString()}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground">Стоимость</p>
+                      <p className="font-mono font-medium text-purple-600">${tokenUsage.totalCost.toFixed(4)}</p>
+                    </div>
+                  </div>
+                  {tokenUsage.attempts > 1 && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Сделано попыток: {tokenUsage.attempts}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          
           
           {/* Результат анализа структуры */}
           {structureAnalysis && (
