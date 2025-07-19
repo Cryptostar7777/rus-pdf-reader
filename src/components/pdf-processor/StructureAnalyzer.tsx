@@ -55,14 +55,27 @@ export const StructureAnalyzer: React.FC<StructureAnalyzerProps> = ({
           ? JSON.parse(data.result) 
           : data.result;
         
-        // Добавляем ID и флаг selected к каждой таблице
+        // Добавляем ID, флаг selected и диапазон страниц к каждой таблице
         const enhancedAnalysis = {
           ...analysis,
-          found_tables: analysis.found_tables.map((table: any, index: number) => ({
-            ...table,
-            id: `table-${index}`,
-            selected: true // По умолчанию все выбраны
-          }))
+          found_tables: analysis.found_tables.map((table: any, index: number) => {
+            // Определяем диапазон страниц для получения полного контента
+            const pageNumbers = Array.isArray(table.pageNumbers) ? table.pageNumbers : [table.pageNumbers].filter(Boolean);
+            const minPage = Math.min(...pageNumbers);
+            const maxPage = Math.max(...pageNumbers);
+            
+            // Расширяем диапазон на 1-2 страницы в каждую сторону для полноты
+            const start = Math.max(1, minPage - 1);
+            const end = Math.min(extractedText.length, maxPage + 2);
+            
+            return {
+              ...table,
+              id: `table-${index}`,
+              selected: true, // По умолчанию все выбраны
+              pageRange: { start, end },
+              pageNumbers: pageNumbers
+            };
+          })
         };
         
         onAnalysisComplete(enhancedAnalysis);

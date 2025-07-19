@@ -13,6 +13,7 @@ import { StructureAnalyzer } from './StructureAnalyzer';
 import { SectionSelector } from './SectionSelector';
 import { DataExtractor } from './DataExtractor';
 import { ProcessingStatus } from './ProcessingStatus';
+import { ResultsDisplay } from './ResultsDisplay';
 
 export const PDFProcessor: React.FC = () => {
   // Основные состояния
@@ -143,10 +144,56 @@ export const PDFProcessor: React.FC = () => {
     });
   };
 
-  const handleProceedToExtraction = () => {
+  const handleProceedToExtraction = async () => {
+    const selectedSections = getSelectedSections();
+    if (selectedSections.length === 0) return;
+    
+    setIsProcessing(true);
     setCurrentStage('extract_data');
-    setProgress(80);
-    setStatusMessage('Готов к извлечению структурированных данных');
+    setProgress(70);
+    setStatusMessage('Получение полного контента выбранных разделов...');
+    
+    try {
+      // Получаем полный контент для каждого выбранного раздела
+      const sectionsWithFullContent = await Promise.all(
+        selectedSections.map(async (section) => {
+          if (section.fullContent) return section;
+          
+          // Получаем страницы в диапазоне раздела
+          const relevantPages = extractedText.filter(page => 
+            page.pageNumber >= section.pageRange.start && 
+            page.pageNumber <= section.pageRange.end
+          );
+          
+          const fullContent = relevantPages.map(page => page.text).join('\n\n');
+          
+          return {
+            ...section,
+            fullContent
+          };
+        })
+      );
+      
+      // Обновляем структурный анализ с полным контентом
+      if (structureAnalysis) {
+        const updatedAnalysis = {
+          ...structureAnalysis,
+          found_tables: structureAnalysis.found_tables.map(table => {
+            const updatedSection = sectionsWithFullContent.find(s => s.id === table.id);
+            return updatedSection || table;
+          })
+        };
+        setStructureAnalysis(updatedAnalysis);
+      }
+      
+      setProgress(80);
+      setStatusMessage('Готов к извлечению структурированных данных');
+    } catch (error) {
+      console.error('Ошибка получения полного контента:', error);
+      setError('Ошибка при получении полного контента разделов');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Обработчики извлечения данных
@@ -245,6 +292,14 @@ export const PDFProcessor: React.FC = () => {
           onStatusChange={handleStatusChange}
         />
       ) : null}
+
+      {/* Отображение результатов на каждом шаге */}
+      <ResultsDisplay
+        extractedText={extractedText}
+        structureAnalysis={structureAnalysis}
+        extractionResult={extractedData}
+        currentStage={currentStage}
+      />
     </div>
   );
 };

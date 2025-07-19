@@ -8,7 +8,9 @@ export interface TableSection {
   title: string;
   type: 'спецификация' | 'ведомость' | 'характеристики' | 'таблица';
   content: string;
+  fullContent?: string; // Полный контент раздела для извлечения
   pageNumbers: number[];
+  pageRange: { start: number; end: number }; // Диапазон страниц для получения полного контента
   selected: boolean;
 }
 

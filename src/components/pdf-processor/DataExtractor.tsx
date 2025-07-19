@@ -41,9 +41,9 @@ export const DataExtractor: React.FC<DataExtractorProps> = ({
     try {
       onStatusChange('Извлечение структурированных данных...');
       
-      // Объединяем контент выбранных секций
+      // Объединяем контент выбранных секций, используя полный контент если доступен
       const combinedContent = selectedSections
-        .map(section => `=== ${section.title} (${section.type}) ===\n${section.content}`)
+        .map(section => `=== ${section.title} (${section.type}) ===\n${section.fullContent || section.content}`)
         .join('\n\n');
       
       const { data, error } = await supabase.functions.invoke('ai-text-processor', {
@@ -53,7 +53,9 @@ export const DataExtractor: React.FC<DataExtractorProps> = ({
           sections_info: selectedSections.map(s => ({
             title: s.title,
             type: s.type,
-            pageNumbers: s.pageNumbers
+            pageNumbers: s.pageNumbers,
+            pageRange: s.pageRange,
+            hasFullContent: !!s.fullContent
           }))
         }
       });
