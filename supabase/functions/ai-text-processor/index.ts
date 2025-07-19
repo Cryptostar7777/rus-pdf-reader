@@ -170,13 +170,24 @@ ${section}`;
             const sectionResult = sectionData.choices[0].message.content;
             
             try {
-              const sectionJson = JSON.parse(sectionResult);
+              // Очищаем ответ от markdown форматирования
+              let cleanedResult = sectionResult.trim();
+              
+              // Удаляем markdown блоки ```json и ```
+              if (cleanedResult.startsWith('```json')) {
+                cleanedResult = cleanedResult.replace(/^```json\s*/, '').replace(/\s*```\s*$/, '');
+              } else if (cleanedResult.startsWith('```')) {
+                cleanedResult = cleanedResult.replace(/^```\s*/, '').replace(/\s*```\s*$/, '');
+              }
+              
+              const sectionJson = JSON.parse(cleanedResult);
               if (sectionJson.extracted_items && Array.isArray(sectionJson.extracted_items)) {
                 allItems.push(...sectionJson.extracted_items);
                 console.log(`✅ Извлечено ${sectionJson.extracted_items.length} позиций из секции ${i + 1}`);
               }
             } catch (parseError) {
               console.error(`❌ Ошибка парсинга JSON для секции ${i + 1}:`, parseError);
+              console.error(`❌ Проблемный ответ:`, sectionResult.substring(0, 200) + '...');
             }
             
             // Пауза между запросами
