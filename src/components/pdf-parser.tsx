@@ -28,6 +28,7 @@ export const PDFParser: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<string | null>(null);
   const [structureAnalysis, setStructureAnalysis] = useState<any>(null);
+  const [structuredData, setStructuredData] = useState<any>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const { toast } = useToast();
 
@@ -38,6 +39,7 @@ export const PDFParser: React.FC = () => {
     setProgress(0);
     setAiResult(null);
     setStructureAnalysis(null);
+    setStructuredData(null);
   };
 
   const extractTextFromPDF = async () => {
@@ -247,6 +249,75 @@ export const PDFParser: React.FC = () => {
     }
   };
 
+  const extractStructuredData = async () => {
+    if (extractedText.length === 0) {
+      toast({
+        title: "Нет текста для анализа",
+        description: "Сначала извлеките текст из PDF",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAiProcessing(true);
+    setError(null);
+    
+    try {
+      // Объединяем весь текст из всех страниц
+      const fullText = extractedText
+        .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
+        .join('\n\n');
+      
+      console.log('Извлекаем структурированные данные, символов:', fullText.length);
+      
+      const { data, error } = await supabase.functions.invoke('ai-text-processor', {
+        body: { 
+          text: fullText,
+          mode: 'structured'
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        console.log('Получены структурированные данные:', data.result);
+        
+        // Пытаемся распарсить JSON ответ
+        try {
+          const parsedResult = JSON.parse(data.result);
+          setStructuredData(parsedResult);
+          
+          toast({
+            title: "Извлечение завершено",
+            description: `Извлечено ${parsedResult.extracted_items?.length || 0} позиций`,
+          });
+        } catch (parseError) {
+          // Если не JSON, сохраняем как есть
+          setStructuredData({ raw_response: data.result });
+          
+          toast({
+            title: "Извлечение завершено",
+            description: "Данные получены (требуется проверка формата)",
+          });
+        }
+
+      } else {
+        throw new Error(data.error || 'Неизвестная ошибка извлечения');
+      }
+
+    } catch (err) {
+      console.error('Ошибка извлечения структурированных данных:', err);
+      setError(`Ошибка извлечения: ${err.message}`);
+      toast({
+        title: "Ошибка извлечения",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
       <UploadZone
@@ -314,7 +385,7 @@ export const PDFParser: React.FC = () => {
 
       {extractedText.length > 0 && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center flex-wrap gap-2">
             <Button
               onClick={downloadText}
               variant="outline"
@@ -324,14 +395,26 @@ export const PDFParser: React.FC = () => {
               <span>Скачать текст</span>
             </Button>
             
-            <Button
-              onClick={analyzeDocumentStructure}
-              disabled={isAiProcessing}
-              className="bg-primary hover:bg-primary/90"
-            >
-              <Brain className="h-5 w-5 mr-2" />
-              {isAiProcessing ? 'Анализируем...' : 'Анализировать структуру'}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={analyzeDocumentStructure}
+                disabled={isAiProcessing}
+                variant="secondary"
+                className="bg-primary/10 hover:bg-primary/20"
+              >
+                <Brain className="h-5 w-5 mr-2" />
+                {isAiProcessing ? 'Анализируем...' : 'Анализ структуры'}
+              </Button>
+              
+              <Button
+                onClick={extractStructuredData}
+                disabled={isAiProcessing}
+                className="bg-gradient-primary hover:opacity-90"
+              >
+                <FileText className="h-5 w-5 mr-2" />
+                {isAiProcessing ? 'Извлекаем...' : 'Извлечь данные'}
+              </Button>
+            </div>
           </div>
           
           {/* Результат анализа структуры */}
@@ -361,6 +444,65 @@ export const PDFParser: React.FC = () => {
                     ) : (
                       <div className="p-3 bg-muted rounded text-sm">
                         {structureAnalysis.raw_response || JSON.stringify(structureAnalysis, null, 2)}
+                      </div>
+                    )}
+                  </div>
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
+          
+          {/* Результат извлечения структурированных данных */}
+          {structuredData && (
+            <div className="space-y-4">
+              <Alert>
+                <FileText className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Извлеченные структурированные данные:</strong>
+                  <div className="mt-3">
+                    {structuredData.extracted_items ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full border border-border rounded-lg">
+                          <thead className="bg-muted">
+                            <tr>
+                              <th className="border border-border px-2 py-1 text-xs">Наим. системы</th>
+                              <th className="border border-border px-2 py-1 text-xs">Раздел</th>
+                              <th className="border border-border px-2 py-1 text-xs">Наименование</th>
+                              <th className="border border-border px-2 py-1 text-xs">Характеристики</th>
+                              <th className="border border-border px-2 py-1 text-xs">Марка</th>
+                              <th className="border border-border px-2 py-1 text-xs">Код</th>
+                              <th className="border border-border px-2 py-1 text-xs">Завод</th>
+                              <th className="border border-border px-2 py-1 text-xs">Ед.изм</th>
+                              <th className="border border-border px-2 py-1 text-xs">Кол-во</th>
+                              <th className="border border-border px-2 py-1 text-xs">Категория</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {structuredData.extracted_items.slice(0, 10).map((item: any, index: number) => (
+                              <tr key={index} className="hover:bg-muted/50">
+                                <td className="border border-border px-2 py-1 text-xs">{item["Наименование системы"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Наименование раздела"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Наименование"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs max-w-xs truncate" title={item["Технические характеристики"]}>{item["Технические характеристики"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Тип, марка, обозначение"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Код изделия"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Завод изготовитель"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Ед измерения"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Количество"] || ''}</td>
+                                <td className="border border-border px-2 py-1 text-xs">{item["Категория"] || ''}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {structuredData.extracted_items.length > 10 && (
+                          <p className="text-sm text-muted-foreground mt-2">
+                            Показано первых 10 из {structuredData.extracted_items.length} позиций
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-muted rounded text-sm">
+                        {structuredData.raw_response || JSON.stringify(structuredData, null, 2)}
                       </div>
                     )}
                   </div>
