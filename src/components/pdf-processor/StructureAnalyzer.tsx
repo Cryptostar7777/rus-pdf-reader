@@ -37,65 +37,92 @@ export const StructureAnalyzer: React.FC<StructureAnalyzerProps> = ({
     try {
       onStatusChange('Анализ структуры документа...');
       
-      // Ограничиваем размер текста для анализа (максимум ~50KB)
-      const MAX_TEXT_LENGTH = 50000;
-      let fullText = extractedText
-        .map(page => `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}`)
-        .join('\n\n');
+      const MAX_CHUNK_SIZE = 40000; // Размер chunk для OpenAI
+      const allTables: any[] = [];
       
-      // Если текст слишком большой, берем первую часть
-      if (fullText.length > MAX_TEXT_LENGTH) {
-        fullText = fullText.substring(0, MAX_TEXT_LENGTH) + '\n\n[...текст обрезан для анализа...]';
-        onStatusChange('Анализ структуры документа (текст обрезан для оптимизации)...');
-      }
+      // Разбиваем на chunks по страницам
+      const chunks = createTextChunks(extractedText, MAX_CHUNK_SIZE);
       
-      const { data, error } = await supabase.functions.invoke('structure-analyzer', {
-        body: { 
-          text: fullText,
-          total_pages: extractedText.length
-        }
-      });
-
-      if (error) throw error;
-
-      if (data.success) {
-        const analysis = typeof data.result === 'string' 
-          ? JSON.parse(data.result) 
-          : data.result;
+      onStatusChange(`Анализ структуры: обработка ${chunks.length} фрагментов...`);
+      
+      // Обрабатываем каждый chunk
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        onStatusChange(`Анализ фрагмента ${i + 1}/${chunks.length}...`);
         
-        // Добавляем ID, флаг selected и диапазон страниц к каждой таблице
-        const enhancedAnalysis = {
-          ...analysis,
-          found_tables: analysis.found_tables.map((table: any, index: number) => {
-            // Определяем диапазон страниц для получения полного контента
-            const pageNumbers = Array.isArray(table.pageNumbers) ? table.pageNumbers : [table.pageNumbers].filter(Boolean);
-            const minPage = Math.min(...pageNumbers);
-            const maxPage = Math.max(...pageNumbers);
-            
-            // Расширяем диапазон на 1-2 страницы в каждую сторону для полноты
-            const start = Math.max(1, minPage - 1);
-            const end = Math.min(extractedText.length, maxPage + 2);
-            
-            return {
-              ...table,
-              id: `table-${index}`,
-              selected: true, // По умолчанию все выбраны
-              pageRange: { start, end },
-              pageNumbers: pageNumbers
-            };
-          })
-        };
-        
-        onAnalysisComplete(enhancedAnalysis);
-        onStatusChange(`Найдено ${analysis.found_tables?.length || 0} таблиц/спецификаций`);
-        
-        toast({
-          title: "Анализ завершен",
-          description: `Найдено ${analysis.found_tables?.length || 0} структурных элементов`,
+        const { data, error } = await supabase.functions.invoke('structure-analyzer', {
+          body: { 
+            text: chunk.text,
+            total_pages: extractedText.length,
+            chunk_info: {
+              chunk_number: i + 1,
+              total_chunks: chunks.length,
+              start_page: chunk.startPage,
+              end_page: chunk.endPage
+            }
+          }
         });
-      } else {
-        throw new Error(data.error || 'Неизвестная ошибка анализа');
+
+        if (error) throw error;
+
+        if (data.success) {
+          const analysis = typeof data.result === 'string' 
+            ? JSON.parse(data.result) 
+            : data.result;
+          
+          // Добавляем таблицы из этого chunk с коррекцией номеров страниц
+          if (analysis.found_tables && analysis.found_tables.length > 0) {
+            const chunkTables = analysis.found_tables.map((table: any) => ({
+              ...table,
+              // Корректируем номера страниц относительно всего документа
+              pageNumbers: Array.isArray(table.pageNumbers) 
+                ? table.pageNumbers.map((p: number) => p + chunk.startPage - 1)
+                : [table.pageNumbers + chunk.startPage - 1],
+              chunk_source: i + 1
+            }));
+            allTables.push(...chunkTables);
+          }
+        }
       }
+      
+      // Удаляем дубликаты и объединяем результаты
+      const uniqueTables = removeDuplicateTables(allTables);
+      
+      // Создаем финальный анализ
+      const finalAnalysis = {
+        document_type: 'Техническая документация',
+        total_pages: extractedText.length,
+        found_tables: uniqueTables.map((table: any, index: number) => {
+          const pageNumbers = Array.isArray(table.pageNumbers) ? table.pageNumbers : [table.pageNumbers].filter(Boolean);
+          const minPage = Math.min(...pageNumbers);
+          const maxPage = Math.max(...pageNumbers);
+          
+          const start = Math.max(1, minPage - 1);
+          const end = Math.min(extractedText.length, maxPage + 2);
+          
+          return {
+            ...table,
+            id: `table-${index}`,
+            selected: true,
+            pageRange: { start, end },
+            pageNumbers: pageNumbers
+          };
+        }),
+        summary: `Обработано ${chunks.length} фрагментов документа. Найдено ${uniqueTables.length} уникальных таблиц/спецификаций.`,
+        processing_info: {
+          chunks_processed: chunks.length,
+          tables_found: uniqueTables.length
+        }
+      };
+      
+      onAnalysisComplete(finalAnalysis);
+      onStatusChange(`Найдено ${uniqueTables.length} таблиц/спецификаций`);
+      
+      toast({
+        title: "Анализ завершен",
+        description: `Найдено ${uniqueTables.length} структурных элементов в ${chunks.length} фрагментах`,
+      });
+      
     } catch (err) {
       console.error('Ошибка анализа структуры:', err);
       onStatusChange(`Ошибка анализа: ${err.message}`);
@@ -105,6 +132,58 @@ export const StructureAnalyzer: React.FC<StructureAnalyzerProps> = ({
         variant: "destructive",
       });
     }
+  };
+
+  // Функция для создания chunks с учетом границ страниц
+  const createTextChunks = (pages: PageText[], maxSize: number) => {
+    const chunks: Array<{text: string, startPage: number, endPage: number}> = [];
+    let currentChunk = '';
+    let currentStartPage = 1;
+    let currentPage = 1;
+    
+    for (const page of pages) {
+      const pageText = `=== СТРАНИЦА ${page.pageNumber} ===\n${page.text}\n\n`;
+      
+      // Если добавление этой страницы превысит лимит, сохраняем текущий chunk
+      if (currentChunk.length + pageText.length > maxSize && currentChunk.length > 0) {
+        chunks.push({
+          text: currentChunk.trim(),
+          startPage: currentStartPage,
+          endPage: currentPage - 1
+        });
+        currentChunk = pageText;
+        currentStartPage = page.pageNumber;
+      } else {
+        currentChunk += pageText;
+      }
+      
+      currentPage = page.pageNumber;
+    }
+    
+    // Добавляем последний chunk
+    if (currentChunk.trim()) {
+      chunks.push({
+        text: currentChunk.trim(),
+        startPage: currentStartPage,
+        endPage: currentPage
+      });
+    }
+    
+    return chunks;
+  };
+
+  // Функция для удаления дубликатов таблиц
+  const removeDuplicateTables = (tables: any[]) => {
+    const seen = new Set<string>();
+    return tables.filter(table => {
+      // Создаем уникальный ключ на основе названия и описания
+      const key = `${table.title || ''}-${table.description || ''}-${table.table_type || ''}`.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
   };
 
   return (
