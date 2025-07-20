@@ -37,7 +37,7 @@ export const StructureAnalyzer: React.FC<StructureAnalyzerProps> = ({
     try {
       onStatusChange('Анализ структуры документа...');
       
-      const MAX_CHUNK_SIZE = 40000; // Размер chunk для OpenAI
+      const MAX_CHUNK_SIZE = 30000; // Уменьшенный размер chunk для надежности
       const allTables: any[] = [];
       
       // Разбиваем на chunks по страницам
@@ -50,38 +50,54 @@ export const StructureAnalyzer: React.FC<StructureAnalyzerProps> = ({
         const chunk = chunks[i];
         onStatusChange(`Анализ фрагмента ${i + 1}/${chunks.length}...`);
         
-        const { data, error } = await supabase.functions.invoke('structure-analyzer', {
-          body: { 
-            text: chunk.text,
-            total_pages: extractedText.length,
-            chunk_info: {
-              chunk_number: i + 1,
-              total_chunks: chunks.length,
-              start_page: chunk.startPage,
-              end_page: chunk.endPage
+        try {
+          // Проверяем размер текста перед отправкой
+          const textSize = new Blob([chunk.text]).size;
+          if (textSize > 50 * 1024) { // 50KB лимит
+            console.warn(`Chunk ${i + 1} размер ${textSize} байт, пропускаем`);
+            continue;
+          }
+
+          const { data, error } = await supabase.functions.invoke('structure-analyzer', {
+            body: { 
+              text: chunk.text,
+              total_pages: extractedText.length,
+              chunk_info: {
+                chunk_number: i + 1,
+                total_chunks: chunks.length,
+                start_page: chunk.startPage,
+                end_page: chunk.endPage
+              }
+            }
+          });
+
+          if (error) {
+            console.error(`Ошибка в chunk ${i + 1}:`, error);
+            continue; // Пропускаем проблемный chunk
+          }
+
+          if (data.success) {
+            const analysis = typeof data.result === 'string' 
+              ? JSON.parse(data.result) 
+              : data.result;
+            
+            // Добавляем таблицы из этого chunk с коррекцией номеров страниц
+            if (analysis.found_tables && analysis.found_tables.length > 0) {
+              const chunkTables = analysis.found_tables.map((table: any) => ({
+                ...table,
+                // Корректируем номера страниц относительно всего документа
+                pageNumbers: Array.isArray(table.pageNumbers) 
+                  ? table.pageNumbers.map((p: number) => p + chunk.startPage - 1)
+                  : [table.pageNumbers + chunk.startPage - 1],
+                chunk_source: i + 1
+              }));
+              allTables.push(...chunkTables);
             }
           }
-        });
-
-        if (error) throw error;
-
-        if (data.success) {
-          const analysis = typeof data.result === 'string' 
-            ? JSON.parse(data.result) 
-            : data.result;
-          
-          // Добавляем таблицы из этого chunk с коррекцией номеров страниц
-          if (analysis.found_tables && analysis.found_tables.length > 0) {
-            const chunkTables = analysis.found_tables.map((table: any) => ({
-              ...table,
-              // Корректируем номера страниц относительно всего документа
-              pageNumbers: Array.isArray(table.pageNumbers) 
-                ? table.pageNumbers.map((p: number) => p + chunk.startPage - 1)
-                : [table.pageNumbers + chunk.startPage - 1],
-              chunk_source: i + 1
-            }));
-            allTables.push(...chunkTables);
-          }
+        } catch (chunkError) {
+          console.error(`Ошибка обработки chunk ${i + 1}:`, chunkError);
+          onStatusChange(`Ошибка в фрагменте ${i + 1}, продолжаем...`);
+          continue; // Продолжаем обработку следующих chunks
         }
       }
       
