@@ -85,7 +85,7 @@ serve(async (req) => {
             { role: 'user', content: prompt }
           ],
           temperature: 0.01,
-          max_tokens: 4000,
+          max_tokens: 8000, // УВЕЛИЧЕНО для полного анализа структуры
         }),
       });
 

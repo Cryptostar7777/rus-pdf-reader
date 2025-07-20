@@ -84,7 +84,7 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4.1-2025-04-14', // Используем более мощную модель для извлечения
+          model: 'gpt-4.1-mini-2025-04-14', // Быстрая модель для извлечения
           messages: [
             { 
               role: 'system', 
@@ -93,7 +93,7 @@ serve(async (req) => {
             { role: 'user', content: prompt }
           ],
           temperature: 0.01,
-          max_tokens: 8000, // Больше токенов для полного извлечения
+          max_tokens: 16000, // УВЕЛИЧЕНО для полного извлечения больших таблиц
         }),
       });
 
