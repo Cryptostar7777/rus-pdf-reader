@@ -55,40 +55,104 @@ export const PrecisionExtractor: React.FC<PrecisionExtractorProps> = ({
       .join('\n\n');
   };
 
-  const chunkLargeSection = (section: TableSection, maxPagesPerChunk: number = 12) => {
-    const totalPages = section.pageRange.end - section.pageRange.start + 1;
+  const intelligentChunkSection = (section: TableSection) => {
+    const fullContent = getFullSectionContent(section);
+    const maxChunkSize = 45000; // Увеличенный лимит для полных таблиц
     
-    if (totalPages <= maxPagesPerChunk) {
+    // Если секция помещается целиком - не делим
+    if (fullContent.length <= maxChunkSize) {
       return [{
         ...section,
-        fullContent: getFullSectionContent(section),
+        fullContent,
         chunkIndex: 0,
-        totalChunks: 1
+        totalChunks: 1,
+        strategy: 'full_section'
       }];
     }
 
+    // УМНОЕ РАЗДЕЛЕНИЕ ПО ТАБЛИЦАМ
     const chunks = [];
-    const pagesPerChunk = Math.ceil(totalPages / Math.ceil(totalPages / maxPagesPerChunk));
+    const tablePatterns = [
+      /^(\d+\.?\d*\s+.{10,})/gm,  // Строки с номерами позиций
+      /^(П\d+|В\d+|ОВ\d+|Т\d+)\s+/gm,  // Строки систем
+      /^\s*\d+\s+[А-Я].{20,}/gm,  // Строки оборудования
+    ];
     
-    for (let i = 0; i < totalPages; i += pagesPerChunk) {
-      const chunkStart = section.pageRange.start + i;
-      const chunkEnd = Math.min(section.pageRange.end, chunkStart + pagesPerChunk - 1);
+    // Находим все границы таблиц
+    let tableStarts = [];
+    for (const pattern of tablePatterns) {
+      let match;
+      while ((match = pattern.exec(fullContent)) !== null) {
+        tableStarts.push(match.index);
+      }
+    }
+    
+    tableStarts = [...new Set(tableStarts)].sort((a, b) => a - b);
+    
+    if (tableStarts.length === 0) {
+      // Если таблицы не найдены - простое деление
+      return createSimpleChunks(section, fullContent, maxChunkSize);
+    }
+    
+    // Группируем по таблицам с учетом размера
+    let currentChunk = '';
+    let currentStart = 0;
+    let chunkCount = 0;
+    
+    for (let i = 0; i < tableStarts.length; i++) {
+      const nextTableStart = tableStarts[i];
+      const nextTableEnd = i < tableStarts.length - 1 ? tableStarts[i + 1] : fullContent.length;
+      const tableContent = fullContent.slice(nextTableStart, nextTableEnd);
       
-      const chunkSection = {
-        ...section,
-        id: `${section.id}_chunk_${chunks.length}`,
-        title: `${section.title} (часть ${chunks.length + 1})`,
-        pageRange: { start: chunkStart, end: chunkEnd },
-        pageNumbers: Array.from({ length: chunkEnd - chunkStart + 1 }, (_, idx) => chunkStart + idx),
-        chunkIndex: chunks.length,
-        totalChunks: Math.ceil(totalPages / pagesPerChunk)
-      };
+      // Если добавление таблицы превысит лимит - сохраняем текущий кусок
+      if (currentChunk.length + tableContent.length > maxChunkSize && currentChunk.length > 0) {
+        chunks.push(createChunk(section, currentChunk, chunkCount++, currentStart));
+        currentChunk = tableContent;
+        currentStart = nextTableStart;
+      } else {
+        currentChunk += tableContent;
+        if (currentStart === 0) currentStart = nextTableStart;
+      }
+    }
+    
+    // Добавляем последний кусок
+    if (currentChunk.length > 0) {
+      chunks.push(createChunk(section, currentChunk, chunkCount++, currentStart));
+    }
+    
+    // Устанавливаем общее количество кусков
+    chunks.forEach(chunk => chunk.totalChunks = chunks.length);
+    
+    console.log(`🧩 Секция "${section.title}" разделена на ${chunks.length} умных кусков`);
+    return chunks;
+  };
+
+  const createSimpleChunks = (section: TableSection, fullContent: string, maxChunkSize: number) => {
+    const chunks = [];
+    const totalChunks = Math.ceil(fullContent.length / maxChunkSize);
+    
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * maxChunkSize;
+      const end = Math.min(start + maxChunkSize, fullContent.length);
+      const chunkContent = fullContent.slice(start, end);
       
-      chunkSection.fullContent = getFullSectionContent(chunkSection);
-      chunks.push(chunkSection);
+      chunks.push(createChunk(section, chunkContent, i, start, totalChunks));
     }
     
     return chunks;
+  };
+
+  const createChunk = (section: TableSection, content: string, index: number, startPos: number, totalChunks?: number) => {
+    return {
+      ...section,
+      id: `${section.id}_chunk_${index}`,
+      title: `${section.title} (кусок ${index + 1}${totalChunks ? `/${totalChunks}` : ''})`,
+      fullContent: content,
+      chunkIndex: index,
+      totalChunks: totalChunks || 0,
+      contentStart: startPos,
+      strategy: 'intelligent_split'
+    };
   };
 
   const startPrecisionExtraction = async () => {
@@ -122,8 +186,9 @@ export const PrecisionExtractor: React.FC<PrecisionExtractorProps> = ({
 
       const allChunks = [];
       for (const section of selectedSections) {
-        const chunks = chunkLargeSection(section);
+        const chunks = intelligentChunkSection(section);
         allChunks.push(...chunks);
+        console.log(`📋 Секция "${section.title}": ${chunks.length} кусков, стратегия: ${chunks[0].strategy}`);
       }
 
       console.log(`📊 Создано частей для обработки: ${allChunks.length}`);
